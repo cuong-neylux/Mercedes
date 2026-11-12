@@ -1,0 +1,89 @@
+*&---------------------------------------------------------------------*
+*& Include          Z_CONCUR_DBA_SCREEN
+*&---------------------------------------------------------------------*
+
+
+
+SELECTION-SCREEN BEGIN OF BLOCK a10 WITH FRAME TITLE a10.
+  PARAMETERS: variant LIKE disvariant-variant,
+              rb_grid RADIOBUTTON GROUP r10,
+              rb_alv  RADIOBUTTON GROUP r10.
+SELECTION-SCREEN END OF BLOCK a10.
+
+SELECTION-SCREEN BEGIN OF BLOCK a20 WITH FRAME TITLE a20.
+  PARAMETERS:     pa_evaly TYPE gjahr OBLIGATORY.
+  SELECT-OPTIONS: so_zland FOR zconcur_dba_trip-work_loc_land1 MATCHCODE OBJECT h_t005_land NO-DISPLAY.
+  PARAMETERS: rb_dba_y RADIOBUTTON GROUP r30,
+              rb_dba_n RADIOBUTTON GROUP r30.
+SELECTION-SCREEN END OF BLOCK a20.
+
+SELECTION-SCREEN BEGIN OF BLOCK a30 WITH FRAME TITLE a30.
+  SELECT-OPTIONS bukrs FOR pa0001-bukrs.
+  SELECT-OPTIONS kim FOR pa9001-kim_emp.
+SELECTION-SCREEN END OF BLOCK a30.
+
+INITIALIZATION.
+
+  a10 = 'Listaufbereitung'(a10).
+  a20 = 'Auswahl DBA'(a30).
+  a30 = 'Datenauswahl'(a40).
+
+  pa_evaly = sy-datum(4) - 1.
+
+AT SELECTION-SCREEN ON variant.
+
+  CHECK NOT variant IS INITIAL.
+  PERFORM check_variant_existence USING variant variant_save.
+
+AT SELECTION-SCREEN ON pa_evaly.
+
+  IF pa_evaly GT sy-datum.
+    MESSAGE e016 WITH 'Falsches Jahr'(005).
+  ENDIF.
+
+AT SELECTION-SCREEN.
+
+* Determine begin and end reading period
+  CONCATENATE: pa_evaly '0101' INTO gv_beg_reaper,
+               pa_evaly '1201' INTO gv_end_reaper.
+
+* Add one year
+  ADD 1 TO gv_end_reaper(4).
+
+* Read data since previous year
+  SUBTRACT 1 FROM gv_beg_reaper.
+  CONCATENATE gv_beg_reaper(4) '0101' INTO gv_beg_reaper.
+
+  CALL FUNCTION 'RP_LAST_DAY_OF_MONTHS'
+    EXPORTING
+      day_in            = gv_end_reaper
+    IMPORTING
+      last_day_of_month = gv_end_reaper
+    EXCEPTIONS
+      day_in_no_date    = 1
+      OTHERS            = 2.
+  IF sy-subrc <> 0.
+  ENDIF.
+
+  CLEAR rg_ldbfrom[].
+  rg_ldbfrom-sign   = 'I'.
+  rg_ldbfrom-option = 'GE'.
+  rg_ldbfrom-low    = gv_beg_reaper.
+  APPEND rg_ldbfrom.
+
+  CLEAR rg_ldbto[].
+  rg_ldbto-sign   = 'I'.
+  rg_ldbto-option = 'LE'.
+  rg_ldbto-low    = gv_end_reaper.
+  APPEND rg_ldbto.
+
+  CLEAR rg_ldbbetween[].
+  rg_ldbbetween-sign   = 'I'.
+  rg_ldbbetween-option = 'BT'.
+  rg_ldbbetween-low    = gv_beg_reaper.
+  rg_ldbbetween-high   = gv_end_reaper.
+  APPEND rg_ldbbetween.
+
+* Determine begin and end evaluation period
+  CONCATENATE: pa_evaly '0101' INTO gv_beg_evaper,
+               pa_evaly '1201' INTO gv_end_evaper.
