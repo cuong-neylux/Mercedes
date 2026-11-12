@@ -1,0 +1,60 @@
+*&---------------------------------------------------------------------*
+*& Report Z_CONCUR_DBA
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+
+INCLUDE: z_concur_dba_top,                            " Global Data
+         z_concur_dba_screen,
+         z_concur_dba_forms.
+
+*----------------------------------------------------------------------*
+*       PROGRAM BODY
+*----------------------------------------------------------------------*
+START-OF-SELECTION.
+* Authority check
+  PERFORM authority_check.
+
+  pgm = disvariant-report = sy-repid.
+  disvariant-variant      = variant.
+
+  PERFORM build_fieldcat.
+
+*----------------------------------------------------------------------*
+*----------------------------------------------------------------------*
+* KIM & BURSK Auswahl
+  gv_lin = 20. gv_tabix = 100.
+  PERFORM progress_indicator USING '1' pa9001-kim_emp gv_lin gv_tabix.
+  CALL FUNCTION 'RS_REFRESH_FROM_SELECTOPTIONS'
+    EXPORTING
+      curr_report     = sy-repid
+*   IMPORTING
+*     SP              =
+    TABLES
+      selection_table = gt_seltab[]
+*     SELECTION_TABLE_255       =
+    EXCEPTIONS
+      not_found       = 1
+      no_report       = 2
+      OTHERS          = 3.
+  IF sy-subrc <> 0.
+*   Implement suitable error handling here
+  ENDIF.
+
+  SORT gt_seltab[] BY kind.
+
+END-OF-SELECTION.
+*
+**----------------------------------------------------------------------*
+**       PROCESSING BLOCK
+**----------------------------------------------------------------------*
+
+  PERFORM: get_trip_data,
+           get_country_data,
+           process_trip_data.
+
+  IF gt_output IS NOT INITIAL.
+    PERFORM update_database.
+  ENDIF.
+
+  PERFORM display_data.
