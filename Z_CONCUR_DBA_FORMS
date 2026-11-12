@@ -1,0 +1,731 @@
+*&---------------------------------------------------------------------*
+*& Include          Z_CONCUR_DBA_FORMS
+*&---------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*& Form get_trip_data
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM get_trip_data .
+  gv_lin = 40. gv_tabix = 100.
+  PERFORM progress_indicator USING '2' '00000000' gv_lin gv_tabix.
+
+  DATA ls_land1     TYPE intca.
+  DATA ls_kim TYPE pa9001-kim_emp.
+  DATA lt_kim TYPE TABLE OF pa9001-kim_emp.
+  DATA ls_bukrs TYPE bukrs.
+  DATA lt_bukrs TYPE TABLE OF bukrs.
+  DATA ls_trip TYPE zconcur_dba_trip.
+
+* If there's any KIMs/BUKRS selected in Selection Screen
+  CLEAR: gs_seltab, gt_trip_tmp .
+  LOOP AT gt_seltab INTO gs_seltab WHERE ( selname EQ 'BUKRS' OR selname EQ 'KIM' ) AND low IS NOT INITIAL.
+    IF gs_seltab-selname EQ 'BUKRS' AND gs_seltab-low IS NOT INITIAL .
+      SELECT * FROM zconcur_dba_trip INTO CORRESPONDING FIELDS OF TABLE gt_trip_tmp1 WHERE bukrs = gs_seltab-low.
+      APPEND LINES OF gt_trip_tmp1 TO gt_trip_tmp.
+*      APPEND gt_trip_tmp.
+    ENDIF.
+    IF gs_seltab-selname EQ 'KIM' AND gs_seltab-low IS NOT INITIAL .
+      SELECT * FROM zconcur_dba_trip INTO CORRESPONDING FIELDS OF TABLE gt_trip_tmp1 WHERE kim = gs_seltab-low. "#EC CI_NOFIELD
+      APPEND LINES OF gt_trip_tmp1 TO gt_trip_tmp.
+*      APPEND gt_trip_tmp.
+    ENDIF.
+  ENDLOOP.
+
+  IF sy-subrc EQ 0.
+    IF gt_trip_tmp[] IS INITIAL.
+* No KIM/BUKRS specified in selection screen. Take all records
+*      SELECT * FROM zconcur_dba_trip INTO CORRESPONDING FIELDS OF TABLE gt_trip_tmp.
+      IF sy-subrc NE 0.
+        MESSAGE s007.  " No trip data found for specified selection criteria
+        STOP.
+      ENDIF.
+    ENDIF.
+  ELSE.
+* No KIM/BUKRS specified in selection screen. Take all records
+    SELECT * FROM zconcur_dba_trip INTO CORRESPONDING FIELDS OF TABLE gt_trip_tmp "#EC CI_NOWHERE.
+      ORDER BY report_id segment_key kim.              "#EC CI_NOWHERE.
+  ENDIF.
+
+  SORT gt_trip_tmp BY report_id segment_key kim.
+  DELETE ADJACENT DUPLICATES FROM gt_trip_tmp COMPARING report_id segment_key kim.
+  CLEAR ls_land1.
+* only allow BUKRS with LAND1 = 'DE' in Tabelle T001
+*  LOOP AT gt_trip_tmp INTO ls_trip.
+*    CALL FUNCTION 'BBP_GET_COMPANY_COUNTRY'
+*      EXPORTING
+*        iv_company = ls_trip-bukrs
+*      IMPORTING
+*        ev_country = ls_land1.
+*    IF ls_land1 <> 'DE'.
+*      DELETE gt_trip_tmp WHERE bukrs EQ ls_trip-bukrs.
+*      CONTINUE.
+*    ENDIF.
+*  ENDLOOP.
+
+* Eliminate duplicate versions of a trip/period
+*  SORT gt_trip_tmp BY report_id segment_key itinerary_key kim work_loc_land1.
+  SORT gt_trip BY kim datv1 uhrv1 report_id ASCENDING.
+
+  IF gt_trip_tmp[] IS INITIAL.
+    MESSAGE s267.
+*   Display not possible because of missing authorizations
+    EXIT.
+  ENDIF.
+
+** Filter destinations
+  LOOP AT gt_trip_tmp .
+    IF NOT ( ( gt_trip_tmp-datv1 IN rg_ldbfrom
+        AND gt_trip_tmp-datb1 IN rg_ldbto )
+        OR   ( gt_trip_tmp-datb1 IN rg_ldbbetween
+        OR        gt_trip_tmp-datb1 IN rg_ldbbetween ) ).
+      CONTINUE.
+    ENDIF.
+
+    MOVE-CORRESPONDING gt_trip_tmp TO gs_trip.
+    APPEND gs_trip TO gt_trip.
+  ENDLOOP.
+
+  IF sy-subrc <> 0.
+    MESSAGE s007.
+    EXIT.     " No trip data found for specified selection criteria
+  ENDIF.
+
+* Eliminate duplicate versions of a trip/period
+*  SORT gt_trip BY report_id segment_key itinerary_key kim work_loc_land1.
+  SORT gt_trip BY kim datv1 uhrv1 report_id ASCENDING.
+  DELETE ADJACENT DUPLICATES FROM gt_trip COMPARING report_id segment_key itinerary_key kim departure_date.
+
+ENDFORM.                    " GET_TRIP_DATA
+*&---------------------------------------------------------------------*
+*& Form progress_indicator
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*&      --> P_
+*&      --> P_
+*&      --> gv_lin
+*&      --> gv_tabix
+*&---------------------------------------------------------------------*
+FORM progress_indicator  USING p_type
+                               p_pernr
+                               p_lin
+                               p_tabix.
+  DATA: lv_text TYPE string,
+        lv_perc TYPE p.
+
+  CASE p_type.
+
+    WHEN '1'.
+
+      lv_perc = p_lin.
+      CONCATENATE 'Selektion der Mitarbeiter'(006) p_pernr INTO lv_text SEPARATED BY space.
+      CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+        EXPORTING
+          percentage = lv_perc
+          text       = lv_text.
+
+    WHEN '2'.
+
+      lv_perc = p_lin.
+      lv_text = 'Lesen der Hauptziele...'(007).
+      CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+        EXPORTING
+          percentage = lv_perc
+          text       = lv_text.
+
+    WHEN '3'.
+
+      lv_perc = p_lin.
+      lv_text = 'Lesen der Customizingdaten zu den Ländern...'(009).
+      CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+        EXPORTING
+          percentage = lv_perc
+          text       = lv_text.
+
+    WHEN '4'.
+
+      lv_perc = p_lin.
+      lv_text = 'Verarbeitung der Reisen...'(010).
+      CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+        EXPORTING
+          percentage = lv_perc
+          text       = lv_text.
+
+    WHEN '5'.
+
+      lv_perc = p_lin.
+      lv_text = 'Anzeige der Reisen...'(011).
+      CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+        EXPORTING
+          percentage = lv_perc
+          text       = lv_text.
+
+  ENDCASE.
+
+ENDFORM.                        " PROGRESS_INDICATOR
+*&---------------------------------------------------------------------*
+*& Form get_country_data
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM get_country_data .
+  CONSTANTS: ct_land1 TYPE land1 VALUE 'ZZ'.
+
+  DATA: ls_dba       TYPE zconcur_dba,
+        ls_nondba    TYPE zconcur_dba,
+        ls_countries LIKE gt_countries.
+
+  DATA: lv_dbain     TYPE zconcur_dba-dbain,
+        lv_dbalines  TYPE i,
+        lv_countries TYPE i.
+
+  gv_lin = 60. gv_tabix = 100.
+  PERFORM progress_indicator USING '3' '00000000' gv_lin gv_tabix.
+
+* Collect elegible countries
+  LOOP AT gt_trip INTO gs_trip.
+    APPEND gs_trip-work_loc_land1 TO gt_countries.
+  ENDLOOP.
+
+  SORT gt_countries BY land1.
+  DELETE ADJACENT DUPLICATES FROM gt_countries.
+  CHECK NOT gt_countries[] IS INITIAL.
+
+  CASE 'X'.
+    WHEN rb_dba_y.
+      lv_dbain = 'X'.
+    WHEN rb_dba_n.
+      lv_dbain = ' '.
+  ENDCASE.
+
+* Read country customizing data
+  SELECT * FROM zconcur_dba INTO TABLE gt_dba
+                          FOR ALL ENTRIES IN gt_countries
+                          WHERE land1 EQ gt_countries-land1
+                          AND   dbain EQ lv_dbain
+                          AND   begda LE gv_end_evaper
+                          AND   endda GE gv_beg_evaper.
+
+* Change to get default customizing if country not in ZCONCUR_DBA
+  DESCRIBE TABLE gt_countries LINES lv_countries.
+  DESCRIBE TABLE gt_dba       LINES lv_dbalines.
+
+  IF lv_countries NE lv_dbalines.
+
+    SELECT SINGLE * FROM zconcur_dba INTO ls_nondba
+            WHERE land1 EQ ct_land1
+              AND dbain EQ lv_dbain.
+
+    IF sy-subrc EQ 0.
+
+      LOOP AT gt_countries INTO ls_countries.
+
+        IF lv_dbain IS INITIAL.
+          SELECT SINGLE * FROM zconcur_dba INTO ls_dba
+                  WHERE land1 EQ ls_countries-land1
+                    AND dbain EQ 'X'
+                    AND begda LE gv_end_evaper
+                    AND endda GE gv_beg_evaper.
+          IF sy-subrc NE 0.
+
+            READ TABLE gt_dba WITH KEY land1 = ls_countries-land1 TRANSPORTING NO FIELDS.
+
+            IF sy-subrc NE 0.
+              IF ls_countries-land1 NE 'DE'.
+                MOVE ls_countries-land1 TO ls_nondba-land1.
+                APPEND ls_nondba TO gt_dba.
+              ENDIF.
+            ENDIF.
+          ENDIF.
+        ENDIF.
+      ENDLOOP.
+    ENDIF.
+  ENDIF.
+
+* Read rules customizing data
+  SELECT * FROM zconcur_dba_fm INTO TABLE gt_dba_fm
+                             WHERE begda LE gv_end_evaper
+                             AND   endda GE gv_beg_evaper.
+
+ENDFORM.              " GET_COUNTRY_DATA
+*&---------------------------------------------------------------------*
+*& Form process_trip_data
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM process_trip_data .
+  DATA: lt_trip_fm   TYPE STANDARD TABLE OF zconcur_dba_trip,
+        ls_trip_fm   TYPE zconcur_dba_trip,
+        ls_dba_hist  TYPE zconcur_dba_hist,
+        lt_output_fm TYPE STANDARD TABLE OF zconcur_dba_output,
+        lt_9001      TYPE STANDARD TABLE OF pa9001,
+        ls_9001      TYPE pa9001,
+        lt_0001      TYPE STANDARD TABLE OF pa0001,
+        ls_0001      TYPE pa0001,
+        lt_0002      TYPE STANDARD TABLE OF pa0002,
+        ls_0002      TYPE pa0002,
+        lv_country   TYPE scustom-country,
+        lv_sum       TYPE int4.
+
+  SELECT * FROM pa9001 INTO TABLE lt_9001 WHERE begda <= sy-datum AND endda >= sy-datum.
+  SELECT * FROM pa0001 INTO TABLE lt_0001 WHERE begda <= sy-datum AND endda >= sy-datum.
+  SELECT * FROM pa0002 INTO TABLE lt_0002 WHERE begda <= sy-datum AND endda >= sy-datum.
+  SELECT * FROM zconcur_dba_hist INTO TABLE gt_dba_hist WHERE auswertungsjahr <= pa_evaly.
+
+  gv_lin = 80. gv_tabix = 100.
+  PERFORM progress_indicator USING '4' '00000000' gv_lin gv_tabix.
+
+*  SORT gt_trip BY report_id segment_key itinerary_key kim work_loc_land1 datv1 uhrv1 ASCENDING.
+  DELETE ADJACENT DUPLICATES FROM gt_trip COMPARING report_id segment_key itinerary_key kim datv1 uhrv1.
+  LOOP AT kim.
+    LOOP AT gt_dba INTO gs_dba.
+* Filter trips (by country and reading period)
+      LOOP AT gt_dba_fm INTO gs_dba_fm WHERE rulet EQ gs_dba-rulet
+                                       AND   begda LE gv_end_reaper
+                                       AND   endda GE gv_beg_reaper.
+      ENDLOOP.
+      CHECK sy-subrc EQ 0 AND NOT gs_dba_fm-fname IS INITIAL.
+
+      CLEAR: lt_trip_fm[], lt_output_fm[], gt_trip_aux[].
+      gt_trip_aux[] = gt_trip[].
+      LOOP AT gt_trip INTO gs_trip WHERE work_loc_land1 EQ gs_dba-land1 AND kim = kim-low.
+        APPEND gs_trip TO lt_trip_fm.
+        LOOP AT gt_trip_aux INTO gs_trip_aux WHERE kim EQ gs_trip-kim
+                                                   AND report_id EQ gs_trip-report_id
+                                                   AND departure_date > gs_trip-departure_date.
+*                                                 AND itinerary_key EQ gs_trip-itinerary_key
+*                                                 AND departure_city EQ gs_trip-arrival_city
+*                                                 AND segment_key GE ( gs_trip-segment_key + 1 )  .
+*        IF gs_trip_aux-departure_country =  gs_trip-work_loc_country.
+          APPEND gs_trip_aux TO lt_trip_fm.
+*        ENDIF.
+        ENDLOOP.
+      ENDLOOP.
+
+      SORT lt_trip_fm BY kim datv1 uhrv1 report_id ASCENDING.
+      DELETE ADJACENT DUPLICATES FROM lt_trip_fm COMPARING report_id segment_key itinerary_key kim datv1 uhrv1.
+* Begin of Insert: Check duplicate data - HT - 13.04.2023
+      DELETE ADJACENT DUPLICATES FROM lt_trip_fm COMPARING segment_key kim datv1 uhrv1 datb1 uhrb1.
+* End of Insert: Check duplicate data - HT - 13.04.2023
+
+*      Begin Insert: Filter trips from lt_trip_fm that are already evaluated in table ZCONCUR_DBA_HIST for year/kim/country - 082026
+      LOOP AT lt_trip_fm INTO ls_trip_fm.
+        LOOP AT gt_dba_hist TRANSPORTING NO FIELDS
+             WHERE auswertungsjahr < pa_evaly
+               AND kim             = ls_trip_fm-kim
+               AND report_id       = ls_trip_fm-report_id
+               AND work_loc_land1  = ls_trip_fm-work_loc_land1.
+          EXIT.
+        ENDLOOP.
+        IF sy-subrc = 0.
+          DELETE lt_trip_fm.
+        ENDIF.
+      ENDLOOP.
+*      End Insert: Filter trips from lt_trip_fm that are already evaluated in table ZCONCUR_DBA_HIST for year/kim/country - 082026
+
+      CLEAR: lt_output_fm.
+      CALL FUNCTION gs_dba_fm-fname
+        EXPORTING
+          year       = pa_evaly
+          zland      = gs_dba-land1
+          concur_dba = gs_dba
+        TABLES
+          trip       = lt_trip_fm
+          output     = lt_output_fm
+                       EXCEPTIONS
+                       no_data.
+
+      CHECK sy-subrc EQ 0.
+
+      CLEAR gs_output.
+
+
+      LOOP AT lt_output_fm INTO gs_output.
+        IF gs_output-work_loc_land1 EQ 'DE'.
+          CONTINUE.
+        ENDIF.
+* Get Full Name
+        READ TABLE lt_9001 INTO ls_9001 WITH KEY kim_emp = gs_output-kim.
+        CONCATENATE ls_9001-vornapass  ` `  ls_9001-nachnpass INTO gs_output-ename.
+*        CALL FUNCTION 'Z_GET_NAME_FOR_KIM'
+*          EXPORTING
+*            iv_kim            = gs_output-kim
+*            iv_validity_date  = sy-datum
+*            iv_screen_display = ''
+*          IMPORTING
+*            ev_name           = gs_output-ename
+*          EXCEPTIONS
+*            name_not_found    = 1
+*            OTHERS            = 2.
+*
+*        IF sy-subrc <> 0.
+** Implement suitable error handling here
+*          gs_output-ename = ''.
+*        ENDIF.
+* Get ePeople-Personalnummer
+        gs_output-empl_id = ls_9001-empl_id.
+* Get Birthday
+        READ TABLE lt_0002 INTO ls_0002 WITH KEY pernr = ls_9001-pernr.
+        gs_output-gbdat = ls_0002-gbdat.
+* Get Kostenstelle
+        READ TABLE lt_0001 INTO ls_0001 WITH KEY pernr = ls_9001-pernr.
+        gs_output-kostl = ls_0001-kostl.
+* Get Country Name
+        lv_country = gs_output-work_loc_land1.
+        CALL FUNCTION 'Z_GET_COUNTRY_NAME'
+          EXPORTING
+            country  = lv_country
+            language = sy-langu
+          IMPORTING
+            name     = gs_output-landx.
+
+        MODIFY lt_output_fm FROM gs_output TRANSPORTING ename empl_id gbdat kostl landx.
+        IF gs_output-uhrv1_b NE '000000'.
+          READ TABLE lt_output_fm WITH KEY datb1_v = gs_output-datv1_b
+                                           kim = gs_output-kim
+                                           TRANSPORTING NO FIELDS.
+          IF sy-subrc IS INITIAL.
+            SUBTRACT 1 FROM gs_output-ndays.
+          ENDIF.
+        ENDIF.
+        IF gs_output-uhrb1_v NE '000000'.
+          READ TABLE lt_output_fm WITH KEY datv1_b = gs_output-datb1_v
+                                           kim = gs_output-kim
+                                           TRANSPORTING NO FIELDS.
+          IF sy-subrc IS INITIAL.
+            SUBTRACT 1 FROM gs_output-ndays.
+          ENDIF.
+        ENDIF.
+        MODIFY lt_output_fm FROM gs_output.
+
+      ENDLOOP.
+
+      DELETE lt_output_fm WHERE ndays LE 0.
+
+* Select employees by country
+* BEGIN OF DELETE - 092026
+*      CLEAR gs_output.
+*      LOOP AT lt_output_fm INTO gs_output WHERE work_loc_land1 NE 'DE'
+*                                             AND work_loc_land1 EQ gs_dba-land1.
+*        APPEND gs_output TO gt_output.
+**      AT END OF kim.
+*        AT END OF work_loc_land1.
+*          SUM.
+*          IF gs_output-ndays LE gs_dba-ntage. " AND pa_test EQ space.
+*            DELETE gt_output WHERE kim EQ gs_output-kim
+*                             AND   work_loc_land1 EQ gs_dba-land1.
+**        CONTINUE.
+*          ENDIF.
+*        ENDAT.
+*      ENDLOOP.
+* END OF DELETE - 092026
+
+* BEGIN of INSERT - 092026
+      CLEAR: gs_output, lv_sum.
+      LOOP AT lt_output_fm INTO gs_output WHERE work_loc_land1 NE 'DE'
+                                             AND work_loc_land1 EQ gs_dba-land1.
+        APPEND gs_output TO gt_output.
+        lv_sum = lv_sum + gs_output-ndays.
+      ENDLOOP.
+      IF lv_sum LE gs_dba-ntage. " AND pa_test EQ space.
+        DELETE gt_output WHERE kim EQ gs_output-kim
+                         AND   work_loc_land1 EQ gs_dba-land1.
+      ENDIF.
+* END of INSERT - 092026
+
+    ENDLOOP.
+  ENDLOOP.
+* Begin of Insert: Check duplicate data - HT - 13.04.2023
+  DELETE ADJACENT DUPLICATES FROM gt_output COMPARING kim datv1_v uhrv1_v datb1_v uhrb1_v datv1_b uhrv1_b datb1_b uhrb1_b.
+* End of Insert: Check duplicate data - HT - 13.04.2023
+ENDFORM.                  " PROCESS_TRIP_DATA
+*&---------------------------------------------------------------------*
+*& Form display_data
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM display_data .
+
+  gv_lin = 99. gv_tabix = 100.
+  PERFORM progress_indicator USING '5' '00000000' gv_lin gv_tabix.
+
+  IF gt_output[] IS INITIAL.
+    MESSAGE s016 WITH 'Keine Daten für diese Selektion verfügbar'(004).
+    EXIT.
+  ENDIF.
+
+* Final adjustment to output table
+  gv_col_pos = 20.
+  fc ndays space  space  space  xfield  space.
+
+  layout-detail_initial_lines = xfield.
+  layout-colwidth_optimize    = xfield.
+  layout-cell_merge           = xfield.
+  layout-zebra                = xfield.
+  layout-no_author            = xfield.
+
+  PERFORM: build_sortcat,
+           call_list_viewer.
+ENDFORM.            " DISPLAY_DATA
+
+*&---------------------------------------------------------------------*
+*& Form build_sortcat
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM build_sortcat .
+  sc 1 ename          space  space xfield space.
+  sc 1 kim            space  space space  space.
+  sc 1 datv1_v        space  space space  space.
+*  sc 1 report_id      space  space space  space.
+*  sc 2 work_loc_land1 xfield space xfield space.
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form call_list_viewer
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*       Start list viewer
+*&---------------------------------------------------------------------*
+FORM call_list_viewer .
+  IF NOT gv_count_reject IS INITIAL.
+*   Display is incomplete because of missing authorizations
+    MESSAGE s268 WITH gv_count_reject.
+  ENDIF.
+
+  DATA: lf_save,
+        grid_title TYPE lvc_title.
+
+  AUTHORITY-CHECK OBJECT 'S_ALV_LAYO' ID 'ACTVT' FIELD '23'.
+
+  IF sy-subrc IS INITIAL.
+*   user is authorized to maintain system wide variants
+    lf_save = 'A'.
+  ELSE.
+*   user can only save variants for him/herself
+    lf_save = 'U'.
+  ENDIF.
+
+  CASE 'X'.
+    WHEN rb_dba_y.
+      grid_title = 'DBA Auswertung'(001).
+    WHEN rb_dba_n.
+      grid_title = 'Non-DBA Auswertung'(002).
+  ENDCASE.
+
+  IF rb_alv IS INITIAL.
+    CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+      EXPORTING
+        i_callback_program      = pgm
+        i_grid_title            = grid_title
+        is_layout               = layout
+        it_fieldcat             = fieldcat
+        it_sort                 = sortcat
+        it_events               = eventcat
+        i_save                  = lf_save
+        is_variant              = disvariant
+        i_callback_user_command = 'USER_COMMAND'
+      TABLES
+        t_outtab                = gt_output
+      EXCEPTIONS
+        program_error           = 1
+        OTHERS                  = 2.
+  ELSE.
+    PERFORM events_definition USING eventcat.
+    CALL FUNCTION 'REUSE_ALV_LIST_DISPLAY'
+      EXPORTING
+        i_callback_program      = pgm
+        is_layout               = layout
+        it_fieldcat             = fieldcat
+        it_sort                 = sortcat
+        it_events               = eventcat
+        i_save                  = lf_save
+        is_variant              = disvariant
+        i_callback_user_command = 'USER_COMMAND'
+      TABLES
+        t_outtab                = gt_output
+      EXCEPTIONS
+        program_error           = 1
+        OTHERS                  = 2.
+  ENDIF.
+ENDFORM.                  " CALL_LIST_VIEWER
+*&---------------------------------------------------------------------*
+*& Form compress_coltab
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*       Make sure fields in coltab are unique - otherwise
+*       incorrect results with select for all entries
+*&---------------------------------------------------------------------*
+FORM compress_coltab .
+
+  SORT coltab.
+  DELETE ADJACENT DUPLICATES FROM coltab.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form events_definition
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*&      --> EVENTCAT
+*&---------------------------------------------------------------------*
+FORM events_definition USING xevents TYPE slis_t_event.
+
+  TYPES: BEGIN OF slis_alv_event,
+           name(30),
+           form(30),
+         END OF slis_alv_event.
+  DATA  ls_event TYPE slis_alv_event.
+
+  CALL FUNCTION 'REUSE_ALV_EVENTS_GET'
+    EXPORTING
+      i_list_type = 0
+    IMPORTING
+      et_events   = xevents.
+
+  READ TABLE xevents WITH KEY name = gc_formname_top_of_page
+                          INTO ls_event.
+  IF sy-subrc = 0.
+    MOVE slis_ev_top_of_page TO ls_event-form.
+    MODIFY xevents FROM ls_event INDEX sy-tabix.
+  ENDIF.
+
+ENDFORM.                    " EVENTS_DEFINITION
+*----------------------------------------------------------------------*
+*       Form  BUILD_FIELDCAT
+*----------------------------------------------------------------------*
+*       Build field catalog for the list viewer
+*----------------------------------------------------------------------*
+FORM build_fieldcat.
+  gv_col_pos = 0.
+  fieldcat_ln-tabname = 'gt_output'.
+
+  fc ename xfield xfield space  space  space.
+  fc kim xfield xfield space  space  space.
+  fc empl_id space  space  space  space  space.
+  fc gbdat space  space  space  space  space.
+  fc kostl space  space  space  space  space.
+  fc departure_country space  space  space  space  space.
+  fc work_loc_land1 space  space  space  space  space.
+  fc landx space  space  space  space  space.
+  fc report_id space xfield space  space  space.
+  fc datv1_v space  space  space  space  space.
+  fc uhrv1_v space  space  space  space  space.
+  fc datb1_v space  space  space  space  space.
+  fc uhrb1_v space  space  space  space  space.
+  fc datv1_b space  space  space  space  space.
+  fc uhrv1_b space  space  space  space  space.
+  fc datb1_b space  space  space  space  space.
+  fc uhrb1_b space  space  space  space  space.
+  fc anz_we space  space  space  space  space.
+  fc cutin space  space  space  space  space.
+*  ADD 1 TO gv_col_pos.
+ENDFORM.                               " BUILD_FIELDCAT
+
+*---------------------------------------------------------------------*
+*       FORM USER_COMMAND
+*---------------------------------------------------------------------*
+*       Callback routine for function REUSE_ALV_LIST_DISPLAY
+*       Execute commands
+*---------------------------------------------------------------------*
+FORM user_command USING    ucomm LIKE sy-ucomm
+                  selfield TYPE slis_selfield.
+
+  READ TABLE gt_output INTO gs_output INDEX selfield-tabindex.
+  IF sy-subrc <> 0.
+    EXIT.
+  ENDIF.
+
+  CASE ucomm.
+    WHEN '&IC1'.
+      IF  selfield-sel_tab_field CS 'KIM' OR
+             selfield-sel_tab_field CS 'ENAME' OR
+             selfield-sel_tab_field CS 'REPORT_ID'.
+*        PERFORM get_name USING gs_output-kim sy-datum.
+      ENDIF.
+  ENDCASE.
+
+ENDFORM.                    "user_command
+*&---------------------------------------------------------------------*
+*& Form get_name
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*&      --> gs_output_KIM
+*&      --> gs_output_DATB1
+*&---------------------------------------------------------------------*
+FORM get_name  USING    kim_emp TYPE zkim
+                        date  LIKE sy-datum.
+  CALL FUNCTION 'Z_GET_NAME_FOR_KIM'
+    EXPORTING
+      iv_kim         = kim_emp
+      validity_date  = date
+      screen_display = 'X'
+*     START_ROW      = 5
+*     START_COLUMN   = 10
+    IMPORTING
+      name           = gs_output-ename
+    EXCEPTIONS
+      name_not_found = 1
+      OTHERS         = 2.
+  IF sy-subrc <> 0.
+* Implement suitable error handling here
+  ENDIF.
+ENDFORM.      "get_name
+*&---------------------------------------------------------------------*
+*& Form authority_check
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM authority_check .
+  AUTHORITY-CHECK OBJECT 'S_TCODE'
+  ID 'TCD' FIELD 'Z_CONCUR_DBA'.
+  IF sy-subrc <> 0.
+    MESSAGE 'Keine Brechtigung zum Ausführen des Programms!' TYPE 'E'.
+  ENDIF.
+ENDFORM.      "authority_check
+*&---------------------------------------------------------------------*
+*& Form update_database
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+FORM update_database .
+* populate date to table ZCONCUR_DBA_HIST
+  DATA: lt_dba_hist TYPE TABLE OF zconcur_dba_hist.
+  DATA: ls_dba_hist TYPE zconcur_dba_hist.
+
+  CLEAR lt_dba_hist.
+  MOVE-CORRESPONDING EXACT gt_output TO lt_dba_hist.
+  LOOP AT lt_dba_hist INTO ls_dba_hist.
+    READ TABLE gt_dba_hist WITH KEY auswertungsjahr = pa_evaly kim = ls_dba_hist-kim report_id = ls_dba_hist-report_id work_loc_land1 = ls_dba_hist-work_loc_land1 TRANSPORTING NO FIELDS.
+    IF sy-subrc <> 0.
+      ls_dba_hist-auswertungsjahr = pa_evaly.
+      MODIFY zconcur_dba_hist FROM ls_dba_hist.
+      IF sy-subrc <> 0.
+        MESSAGE 'Die Auswertung wurde nicht gespeichert!' TYPE 'E'.
+      ENDIF.
+    ENDIF.
+
+  ENDLOOP.
+ENDFORM.
