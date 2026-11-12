@@ -1,0 +1,177 @@
+*&---------------------------------------------------------------------*
+*& Include Z_CONCUR_DBA_TOP                         - Report Z_CONCUR_DBA
+*&---------------------------------------------------------------------*
+REPORT z_concur_dba MESSAGE-ID 56.
+
+TABLES: pa0001, pa9001, zconcur_dba, zconcur_dba_trip.
+
+DATA:  BEGIN OF gt_trip_tmp OCCURS 0.
+         INCLUDE STRUCTURE zconcur_dba_trip.
+DATA:    ename TYPE emnam,
+         sname TYPE smnam,
+       END OF gt_trip_tmp.
+
+DATA:  BEGIN OF gt_trip_tmp1 OCCURS 0.
+         INCLUDE STRUCTURE zconcur_dba_trip.
+DATA:    ename TYPE emnam,
+         sname TYPE smnam,
+       END OF gt_trip_tmp1.
+
+DATA: gv_tabix      TYPE i,
+      gv_lin        TYPE p,
+
+      gv_beg_evaper TYPE d,
+      gv_end_evaper TYPE d,
+
+      gv_beg_reaper TYPE d,
+      gv_end_reaper TYPE d,
+
+      gt_trip       TYPE STANDARD TABLE OF zconcur_dba_trip,
+      gs_trip       TYPE zconcur_dba_trip,
+      gt_trip_aux   TYPE STANDARD TABLE OF zconcur_dba_trip,
+      gs_trip_aux   TYPE zconcur_dba_trip,
+
+      gt_dba_fm     TYPE STANDARD TABLE OF zconcur_dba_fm,
+      gs_dba_fm     TYPE zconcur_dba_fm,
+
+      gt_dba        TYPE STANDARD TABLE OF zconcur_dba,
+      gs_dba        TYPE zconcur_dba,
+      gt_output     TYPE STANDARD TABLE OF zconcur_dba_output,
+      gs_output     TYPE zconcur_dba_output,
+      gt_dba_hist   TYPE STANDARD TABLE OF zconcur_dba_hist.
+
+DATA: gv_col_pos      TYPE i,
+      gv_count_kim    TYPE i,
+      gv_count_reject TYPE i,
+      gv_delta        LIKE sy-uzeit,
+
+      gt_seltab       TYPE TABLE OF rsparams,
+      gs_seltab       TYPE rsparams.
+
+
+DATA: BEGIN OF gt_countries OCCURS 5,
+        land1 TYPE zconcur_dba-land1,
+      END OF gt_countries.
+
+DATA: gt_events           TYPE slis_t_event,
+      gt_list_top_of_page TYPE slis_t_listheader.
+
+CONSTANTS: gc_formname_top_of_page TYPE slis_formname VALUE 'TOP_OF_PAGE'.
+
+RANGES: rg_ldbfrom    FOR sy-datum,
+        rg_ldbto      FOR sy-datum,
+        rg_ldbbetween FOR sy-datum.
+
+RANGES: rg_tabnames FOR rsdstabs-prim_tab.
+
+*FIELD-SYMBOLS: <f1>.
+
+* Data declarations for ABAP list viewer
+INCLUDE rpr_alv_data.
+
+* Constant definitions
+INCLUDE rpr_travel_stats_constants.
+
+* Macros
+DEFINE append_rg_tabnames.
+
+  rg_tabnames-sign   = 'I'.
+  rg_tabnames-option = 'EQ'.
+  rg_tabnames-low    = '&1'.
+  APPEND rg_tabnames.
+
+END-OF-DEFINITION.
+
+DEFINE fc.
+
+*  ADD 1 TO col_pos.
+  fieldcat_ln-col_pos      =  gv_col_pos.
+  fieldcat_ln-fieldname    = '&1'.
+  CASE fieldcat_ln-fieldname.
+    WHEN 'ENAME' OR 'SNAME'.
+      fieldcat_ln-ref_tabname = 'PA0001'.
+    WHEN 'KIM'.
+      fieldcat_ln-seltext_l   = 'KIM'.
+      fieldcat_ln-seltext_m   = 'KIM'.
+      fieldcat_ln-seltext_s   = 'KIM'.
+    WHEN 'EMPL_ID'.
+      fieldcat_ln-seltext_l   = 'EMPL ID'.
+      fieldcat_ln-seltext_m   = 'EMPL ID'.
+      fieldcat_ln-seltext_s   = 'EMPL ID'.
+    WHEN 'GBDAT'.
+      fieldcat_ln-seltext_l   = 'Geburtsdatum'.
+      fieldcat_ln-seltext_m   = 'Geburtsdatum'.
+      fieldcat_ln-seltext_s   = 'Geburtsdatum'.
+    WHEN 'KOSTL'.
+      fieldcat_ln-seltext_l   = 'Kostl'.
+      fieldcat_ln-seltext_m   = 'Kostl'.
+      fieldcat_ln-seltext_s   = 'Kostl'.
+    WHEN 'REPORT_ID'.
+      fieldcat_ln-ref_tabname = 'ZCONCUR_DBA_TRIP'.
+    WHEN 'DEPARTURE_COUNTRY'.
+      fieldcat_ln-seltext_l   = 'Abflugsland'.
+      fieldcat_ln-seltext_m   = 'Abflugsland'.
+      fieldcat_ln-seltext_s   = 'Abflugsland'.
+    WHEN 'WORK_LOC_LAND1'.
+      fieldcat_ln-seltext_l   = 'Länderschlüssel'.
+      fieldcat_ln-seltext_m   = 'Land'.
+      fieldcat_ln-seltext_s   = 'Lnd'.
+    WHEN 'LANDX'.
+      fieldcat_ln-ref_tabname = 'T005T'.
+    WHEN 'DATV1_V'.
+      fieldcat_ln-seltext_l   = 'Abreisetag_von'.
+      fieldcat_ln-seltext_m   = 'Abreisetag_von'.
+      fieldcat_ln-seltext_s   = 'AbTag_von'.
+    WHEN 'UHRV1_V'.
+      fieldcat_ln-seltext_l   = 'Abreisezeit_von'.
+      fieldcat_ln-seltext_m   = 'Abreisezeit_von'.
+      fieldcat_ln-seltext_s   = 'AbZeit_von'.
+    WHEN 'DATB1_V'.
+      fieldcat_ln-seltext_l   = 'Ankunftstag_von'.
+      fieldcat_ln-seltext_m   = 'Ankunftstag_von'.
+      fieldcat_ln-seltext_s   = 'AnTag_von'.
+    WHEN 'UHRB1_V'.
+      fieldcat_ln-seltext_l   = 'Ankunftszeit_von'.
+      fieldcat_ln-seltext_m   = 'Ankunftszeit_von'.
+      fieldcat_ln-seltext_s   = 'AnZeit_von'.
+    WHEN 'DATV1_B'.
+      fieldcat_ln-seltext_l   = 'Abreisetag_bis'.
+      fieldcat_ln-seltext_m   = 'Abreisetag_bis'.
+      fieldcat_ln-seltext_s   = 'AbTag_bis'.
+    WHEN 'UHRV1_B'.
+      fieldcat_ln-seltext_l   = 'Abreisezeit_bis'.
+      fieldcat_ln-seltext_m   = 'Abreisezeit_bis'.
+      fieldcat_ln-seltext_s   = 'AbZeit_bis'.
+    WHEN 'DATB1_B'.
+      fieldcat_ln-seltext_l   = 'Ankunftstag_bis'.
+      fieldcat_ln-seltext_m   = 'Ankunftstag_bis'.
+      fieldcat_ln-seltext_s   = 'AnTag_bis'.
+    WHEN 'UHRB1_B'.
+      fieldcat_ln-seltext_l   = 'Ankunftszeit_bis'.
+      fieldcat_ln-seltext_m   = 'Ankunftszeit_bis'.
+      fieldcat_ln-seltext_s   = 'AnZeit_bis'.
+    WHEN 'ANZ_WE'.
+      fieldcat_ln-seltext_l   = 'Anzahl Wochenendtagen'.
+      fieldcat_ln-seltext_m   = 'Anzahl WE-Tagen'.
+      fieldcat_ln-seltext_s   = 'Anz.WE'.
+    WHEN 'CUTIN'.
+      fieldcat_ln-seltext_l   = 'Cut Indicator'.
+      fieldcat_ln-seltext_m   = 'Cut In.'.
+      fieldcat_ln-seltext_s   = 'CI'.
+    WHEN 'NDAYS'.
+      fieldcat_ln-ref_tabname = space.
+      fieldcat_ln-seltext_l   = 'Tage'.
+      fieldcat_ln-seltext_m   = 'Tage'.
+      fieldcat_ln-seltext_s   = 'Tage'.
+      fieldcat_ln-emphasize   = 'X'.
+    WHEN OTHERS.
+      fieldcat_ln-ref_tabname = 'ZCONCUR_DBA_TRIP'.
+  ENDCASE.
+  fieldcat_ln-key          =  &2.
+  fieldcat_ln-hotspot      =  &3.
+  fieldcat_ln-no_out       =  &4.
+  fieldcat_ln-do_sum       =  &5.
+  fieldcat_ln-cfieldname   =  &6.
+  TRANSLATE: fieldcat_ln-fieldname TO UPPER CASE.
+  APPEND fieldcat_ln TO fieldcat.
+END-OF-DEFINITION.
